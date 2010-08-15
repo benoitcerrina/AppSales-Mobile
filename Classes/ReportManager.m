@@ -51,6 +51,7 @@
 	[[CurrencyManager sharedManager] refreshIfNeeded];
 	
 	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(saveData) name:UIApplicationWillTerminateNotification object:nil];
+	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(saveData) name:UIApplicationDidEnterBackgroundNotification object:nil];
 	
 	return self;
 }
@@ -534,6 +535,8 @@
 	if (errorMessageString) {
 		[self performSelectorOnMainThread:@selector(presentErrorMessage:) withObject:errorMessageString waitUntilDone:YES];
 	}
+	[self saveData];
+
 	[pool release];
 }
 
