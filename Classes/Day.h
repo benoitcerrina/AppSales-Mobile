@@ -46,12 +46,12 @@
 	NSDictionary *summary;
 }
 
-@property (readonly) NSDate *date;
-@property (readonly) NSMutableDictionary *countries;
-@property (readonly) BOOL isWeek;
-@property (readonly) BOOL wasLoadedFromDisk;
+@property (retain) NSDate *date;
+@property (retain) NSMutableDictionary *countries;
+@property (assign) BOOL isWeek;
+@property (assign) BOOL wasLoadedFromDisk;
 @property (readonly) BOOL isFault;
-@property (readonly) NSDictionary *summary;
+@property (retain) NSDictionary *summary;
 
 //+ (NSString*) fileNameForString:(NSString*)fileName extension:(NSString*)fileExtension isWeek:(BOOL)isWeek;
 + (Day *)dayFromCSVFile:(NSString *)filename atPath:(NSString *)docPath;

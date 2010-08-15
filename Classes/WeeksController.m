@@ -163,7 +163,7 @@ static Country *newCountry(NSString *countryName, NSMutableDictionary *countries
 	NSSortDescriptor *dateSorter = [[[NSSortDescriptor alloc] initWithKey:@"date" ascending:NO] autorelease];
 	NSArray *sortedWeeks = [[[ReportManager sharedManager].weeks allValues] sortedArrayUsingDescriptors:[NSArray arrayWithObject:dateSorter]];
 	int lastMonth = -1;
-	int firstMonth;
+	int firstMonth = 0;
 	int numeberOfMonths = 0;
 	float max = 0;
 	for (Day *d in sortedWeeks) {
@@ -194,7 +194,7 @@ static Country *newCountry(NSString *countryName, NSMutableDictionary *countries
 			//days of the last ended week
 			NSMutableArray *lastWeekDays = [NSMutableArray array];
 			
-			NSString *dayString;
+			NSString *dayString = 0;
 			NSString *weekEndDateString;
 			BOOL newMonth = NO;
 			
