@@ -50,8 +50,7 @@
 	
 	[[CurrencyManager sharedManager] refreshIfNeeded];
 	
-	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(saveData) name:UIApplicationWillTerminateNotification object:nil];
-	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(saveData) name:UIApplicationDidEnterBackgroundNotification object:nil];
+	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(saveData) name:UIApplicationWillResignActiveNotification object:nil];
 	
 	return self;
 }
@@ -531,12 +530,11 @@
 	{
 		cacheChanged = YES;
 		[self performSelectorOnMainThread:@selector(setProgress:) withObject:@"" waitUntilDone:YES];
-	}
+		[self performSelectorOnMainThread:@selector(saveData)     withObject:nil waitUntilDone:NO];
+	} 
 	if (errorMessageString) {
 		[self performSelectorOnMainThread:@selector(presentErrorMessage:) withObject:errorMessageString waitUntilDone:YES];
 	}
-	[self saveData];
-
 	[pool release];
 }
 

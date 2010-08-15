@@ -120,7 +120,8 @@
 			if (entry.purchase ) {
 				NSNumber *newCount = [NSNumber numberWithInt:[[salesByApp objectForKey:entry.productName] intValue] + entry.units];
 				[salesByApp setObject:newCount forKey:entry.productName];
-				NSNumber *newRevenue = [NSNumber numberWithFloat:[[revenueByCurrency objectForKey:entry.currency] floatValue] + entry.royalties * entry.units];
+				NSNumber *oldRevenue = [revenueByCurrency objectForKey:entry.currency];
+				NSNumber *newRevenue = [NSNumber numberWithFloat:(oldRevenue ? [oldRevenue floatValue] : 0.0) + entry.royalties * entry.units];
 				[revenueByCurrency setObject:newRevenue forKey:entry.currency];
 			}
 		}
@@ -156,6 +157,35 @@
 }
 
 
+- (void)setDate:(NSDate *)inDate
+{
+	if (inDate != date) {
+		[date release];
+
+		/* All dates should be set to midnight. If set otherwise, they were created in a different time zone.
+		 * We want the date corresponding to that midnight; using NSCalendar directly would give us the date in 
+		 * our local time zone.
+		 */
+		NSCalendar *calendar = [NSCalendar currentCalendar];
+		NSDateComponents *components = [calendar components:NSHourCalendarUnit
+												   fromDate:inDate];
+		NSInteger hour = components.hour;
+		if (hour) {
+			NSCalendar *otherCal = [NSCalendar currentCalendar];
+			otherCal.timeZone = [NSTimeZone timeZoneForSecondsFromGMT:[NSTimeZone defaultTimeZone].secondsFromGMT + hour*60*60];
+
+			/* Get the day/month/year as seen in the original time zone */
+			components = [otherCal components:(NSDayCalendarUnit | NSMonthCalendarUnit| NSYearCalendarUnit)
+									 fromDate:inDate];
+			
+			/* Now set to the date with that day/month/year in our own time zone */
+			date = [[calendar dateFromComponents:components] retain];			
+		} else {
+			date = [inDate retain];
+		}
+	}
+	
+}
 - (NSMutableDictionary *)countries
 {	
 	if (isFault) {
