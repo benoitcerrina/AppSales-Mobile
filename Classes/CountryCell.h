@@ -46,7 +46,6 @@
 }
 
 @property (retain) Country *country;
-@property (retain) UIColor *graphColor;
 @property (assign) float totalRevenue;
 
 @end

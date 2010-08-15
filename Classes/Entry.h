@@ -36,22 +36,23 @@
 	Country *country;
 	NSString *productName;
 	NSString *productIdentifier;
+	NSString *currency;
 	int transactionType;
 	int units;
 	float royalties;
-	NSString *currency;
 }
 
-@property (retain) Country *country;
-@property (retain) NSString *productName;
-@property (retain) NSString *productIdentifier;
-@property (retain) NSString *currency;
-@property (assign) int transactionType;
-@property (assign) float royalties;
-@property (assign) int units;
-@property (readonly) Boolean purchase;
+@property (retain, readonly) Country *country;
+@property (retain, readonly) NSString *productName;
+@property (retain, readonly) NSString *productIdentifier;
+@property (retain, readonly) NSString *currency;
+@property (readonly) int transactionType;
+@property (readonly) float royalties;
+@property (readonly) int units;
+@property (readonly) BOOL purchase;
 
-- (id)initWithProductName:(NSString *)name transactionType:(int)type units:(int)u royalties:(float)r currency:(NSString *)currencyCode country:(Country *)aCountry;
+- (id)initWithProductIdentifier:(NSString*)identifier name:(NSString *)name transactionType:(int)type units:(int)u 
+					  royalties:(float)r currency:(NSString *)currencyCode country:(Country *)aCountry;
 - (float)totalRevenueInBaseCurrency;
 
 @end
