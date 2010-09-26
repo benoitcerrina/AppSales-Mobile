@@ -20,6 +20,7 @@
 
 @synthesize sortedApps, statusLabel, activityIndicator;
 
+
 - (void)updateStatus
 {
 	ReviewManager *manager = [ReviewManager sharedManager];

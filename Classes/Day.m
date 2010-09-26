@@ -36,6 +36,7 @@
 #import "AppIconManager.h"
 #import "ReportManager.h"
 #import "AppManager.h"
+#import "NSData+Compression.h"
 
 static BOOL containsOnlyWhiteSpace(NSArray* array) {
 	NSCharacterSet *charSet = [NSCharacterSet whitespaceCharacterSet];
@@ -66,6 +67,35 @@ static BOOL parseDateString(NSString *dateString, int *year, int *month, int *da
 	return NO; // unrecognized string
 }
 
+static NSDate* reportDateFromString(NSString *dateString) {
+    const NSUInteger stringLength = dateString.length;
+    const NSRange slashRange = [dateString rangeOfString:@"/"];
+    int year, month, day;
+	if (slashRange.location == NSNotFound && stringLength == 8) {
+        //old date format
+        year = [dateString substringWithRange:NSMakeRange(0,4)].intValue;
+        month = [dateString substringWithRange:NSMakeRange(4,2)].intValue;
+        day = [dateString substringWithRange:NSMakeRange(6,2)].intValue;
+    } else if (slashRange.location != NSNotFound && stringLength == 10) {
+        // new date format
+        year = [dateString substringWithRange:NSMakeRange(6,4)].intValue;
+        month = [dateString substringWithRange:NSMakeRange(0,2)].intValue;
+        day = [dateString substringWithRange:NSMakeRange(3,2)].intValue;
+    } else {
+        NSLog(@"unknown date format: %@", dateString);
+        return nil;
+    }
+    
+    NSCalendar *calendar = [NSCalendar currentCalendar];
+    NSDateComponents *components = [[NSDateComponents new] autorelease];
+    [components setYear:year];
+    [components setMonth:month];
+    [components setDay:day];
+    
+    return [calendar dateFromComponents:components];
+}
+
+
 
 @implementation Day
 
@@ -77,147 +107,150 @@ static BOOL parseDateString(NSString *dateString, int *year, int *month, int *da
 //			fileExtension];
 //}
 
++ (Day *)dayWithData:(NSData *)dayData compressed:(BOOL)compressed {
+	NSString *text = nil;
+	if (compressed) {
+		NSData *uncompressedData = [dayData gzipInflate];
+		text = [[NSString alloc] initWithData:uncompressedData encoding:NSUTF8StringEncoding];
+	} else {
+		text = [[NSString alloc] initWithData:dayData encoding:NSUTF8StringEncoding];
+	}
+	Day *day = [[[Day alloc] initWithCSV:text] autorelease];
+	[text release];
+	return day;
+}
+
+
+
++ (NSDate*) adjustDateToLocalTimeZone:(NSDate *)inDate
+{
+    /* All dates should be set to midnight. If set otherwise, they were created in a different time zone.
+     * We want the date corresponding to that midnight; using NSCalendar directly would give us the date in 
+     * our local time zone.
+     */
+    NSCalendar *calendar = [NSCalendar currentCalendar];
+    NSDateComponents *components = [calendar components:NSHourCalendarUnit
+                                               fromDate:inDate];
+    NSInteger hour = components.hour;
+    if (hour) {
+        NSCalendar *otherCal = [NSCalendar currentCalendar];
+        otherCal.timeZone = [NSTimeZone timeZoneForSecondsFromGMT:[NSTimeZone defaultTimeZone].secondsFromGMT + hour*60*60];
+        
+        /* Get the day/month/year as seen in the original time zone */
+        components = [otherCal components:(NSDayCalendarUnit | NSMonthCalendarUnit| NSYearCalendarUnit)
+                                 fromDate:inDate];
+        
+        /* Now set to the date with that day/month/year in our own time zone */
+        return [calendar dateFromComponents:components];
+    } else {
+        return inDate;
+    }
+}
+
+
 - (id)initWithCSV:(NSString *)csv
 {
 	[super init];
 	
 	self.wasLoadedFromDisk = NO;	
 	self.countries = [NSMutableDictionary dictionary];
-	
-	NSMutableArray *lines = [[[csv componentsSeparatedByString:@"\n"] mutableCopy] autorelease];
-	if ([lines count] > 0)
-		[lines removeObjectAtIndex:0];
+    
+    NSMutableArray *lines = [[[csv componentsSeparatedByString:@"\n"] mutableCopy] autorelease];
 	if ([lines count] == 0) {
 		[self release];
 		return nil; // sanity check
 	}
-//	lines = [lines subarrayWithRange:NSMakeRange(1, lines.count-1)];
-	
+    
+    const NSUInteger numColumns = [[lines objectAtIndex:0] componentsSeparatedByString:@"\t"].count;
+    [lines removeObjectAtIndex:0]; // remove column header
+    
 	for (NSString *line in lines) {
 		NSArray *columns = [line componentsSeparatedByString:@"\t"];
 		if (containsOnlyWhiteSpace(columns)) {
 			continue;
 		}
-		if ([columns count] >= 19) {
-			NSString *productName = [columns objectAtIndex:6];
-			NSString *transactionType = [columns objectAtIndex:8];
-			NSString *units = [columns objectAtIndex:9];
-			NSString *royalties = [columns objectAtIndex:10];
-			NSString *dateColumn = [columns objectAtIndex:11];
-			NSString *toDateColumn = [columns objectAtIndex:12];
-			NSString *appId = [columns objectAtIndex:19];
-			[[AppIconManager sharedManager] downloadIconForAppID:appId];
-			if (!self.date) {
-				NSDate *fromDate = [self reportDateFromString:dateColumn];
-				NSDate *toDate = [self reportDateFromString:toDateColumn];
-				if (!fromDate) {
-					NSLog(@"Date is invalid: %@", dateColumn);
-					[self release];
-					return nil;
-				} else {
-					self.date = fromDate;
-					if (![fromDate isEqualToDate:toDate]) {
+        NSString *productName;
+        NSString *transactionType;
+        NSString *units;
+        NSString *royalties;
+        NSString *dateColumn;
+        NSString *toDateColumn;
+        NSString *appId;
+        NSString *parentID;
+        NSString *countryString;
+        NSString *royaltyCurrency;
+
+		if (numColumns > 19) {
+            // old format
+            productName = [columns objectAtIndex:6];
+            transactionType = [columns objectAtIndex:8];
+            units = [columns objectAtIndex:9];
+            royalties = [columns objectAtIndex:10];
+            dateColumn = [columns objectAtIndex:11];
+            toDateColumn = [columns objectAtIndex:12];
+            countryString = [columns objectAtIndex:14];
+            royaltyCurrency = [columns objectAtIndex:15];
+            appId = [columns objectAtIndex:19];
+            parentID = (([columns count] >= 26) ? [columns objectAtIndex:26] : nil);
+        } else if (numColumns == 18) {
+            // Sept 2010 format
+            productName = [columns objectAtIndex:4];
+            transactionType = [columns objectAtIndex:6];
+            units = [columns objectAtIndex:7];
+            royalties = [columns objectAtIndex:8];
+            dateColumn = [[columns objectAtIndex:9] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+            toDateColumn = [[columns objectAtIndex:10] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+            countryString = [columns objectAtIndex:12];
+            royaltyCurrency = [columns objectAtIndex:13];
+            appId = [columns objectAtIndex:14];
+            parentID = [columns objectAtIndex:17];
+        } else {
+            NSLog(@"unknown CSV format: columns %d - %@", numColumns, line);
+            [self release];
+            return nil;
+        }
+			
+        [[AppIconManager sharedManager] downloadIconForAppID:appId];
+        NSDate *fromDate = reportDateFromString(dateColumn);
+        NSDate *toDate = reportDateFromString(toDateColumn);
+        if (!fromDate) {
+            NSLog(@"Date is invalid: %@", dateColumn);
+            [self release];
+            return nil;
+        } else {
+//            date = [[Day adjustDateToLocalTimeZone:fromDate] retain];
+            date = [fromDate retain];
+            if (![fromDate isEqualToDate:toDate]) {
 						self.isWeek = YES;
-					}
-				}
-			}
-			NSString *countryString = [columns objectAtIndex:14];
-			if ([countryString length] != 2) {
-				NSLog(@"Country code is invalid");
-				[self release];
-				return nil; //sanity check, country code has to have two characters
-			}
-			NSString *royaltyCurrency = [columns objectAtIndex:15];
-			
-			//Treat in-app purchases as regular purchases for our purposes.
-			//IA1: In-App Purchase
-			//IA7: In-App Free Upgrade / Repurchase (?)
-			//IA9: In-App Subscription
-			if ([transactionType isEqualToString:@"IA1"]) transactionType = @"2";
-			else
-				if([transactionType isEqualToString:@"IA9"]) transactionType = @"9";
-			else
-				if ([transactionType isEqualToString:@"IA7"]) transactionType = @"7";
-			
-			Country *country = [self countryNamed:countryString]; //will be created on-the-fly if needed.
-			[[[Entry alloc] initWithProductIdentifier:appId
-												name:productName
-									 transactionType:transactionType.intValue
-											   units:units.intValue
-										   royalties:royalties.floatValue
-											currency:royaltyCurrency
-											 country:country] autorelease]; //gets added to the countries entry list automatically
-		}
+            }
+        }
+        if ([countryString length] != 2) {
+            NSLog(@"Country code is invalid: %@", countryString);
+            [self release];
+            return nil; //sanity check, country code has to have two characters
+        }
+        
+        //Treat in-app purchases as regular purchases for our purposes.
+        //IA1: In-App Purchase
+        //IA7: In-App Free Upgrade / Repurchase (?)
+        //IA9: In-App Subscription
+        if ([transactionType isEqualToString:@"IA1"]) transactionType = @"2";
+        else
+            if([transactionType isEqualToString:@"IA9"]) transactionType = @"9";
+        else
+            if ([transactionType isEqualToString:@"IA7"]) transactionType = @"7";
+        
+        const BOOL inAppPurchase = ![parentID isEqualToString:@" "];
+        Country *country = [self countryNamed:countryString]; //will be created on-the-fly if needed.
+        [[[Entry alloc] initWithProductIdentifier:appId
+                                             name:productName
+                                  transactionType:[transactionType intValue]
+                                            units:[units intValue]
+                                        royalties:[royalties floatValue]
+                                         currency:royaltyCurrency
+                                          country:country
+                                    inAppPurchase:inAppPurchase] autorelease]; //gets added to the countries entry list automatically
 	}
-
-	// local version
-	//
-//		if (columns.count < 19) {
-//			NSLog(@"unknown column format: %@", columns.description); // instead should stop parsing and return nil?
-//			continue;
-//		}
-//		NSString *productName = [columns objectAtIndex:6];
-//		NSString *transactionType = [columns objectAtIndex:8];
-//		NSString *units = [columns objectAtIndex:9];
-//		NSString *royalties = [columns objectAtIndex:10];
-//		NSString *dateStartColumn = [columns objectAtIndex:11];
-//		NSString *dateEndColumn = [columns objectAtIndex:12];
-//		NSString *appId = [columns objectAtIndex:19];
-//		[[AppIconManager sharedManager] downloadIconForAppID:appId];
-//		isWeek = ![dateStartColumn isEqualToString:dateEndColumn];
-//		
-//		int startYear, startMonth, startDay;
-//		if (! parseDateString(dateStartColumn, &startYear, &startMonth, &startDay)) {
-//			NSLog(@"invalid startDate: %@", dateStartColumn);
-//			[self release];
-//			return nil;
-//		}
-//		
-//		int endYear, endMonth, endDay;
-//		if (! parseDateString(dateEndColumn, &endYear, &endMonth, &endDay)) {
-//			NSLog(@"invalid endDate: %@", dateEndColumn);
-//			[self release];
-//			return nil;
-//		}
-//		
-//		NSCalendar *calendar = [NSCalendar currentCalendar];
-//		NSDateComponents *components = [[NSDateComponents new] autorelease];
-//		[components setYear:startYear];
-//		[components setMonth:startMonth];
-//		[components setDay:startDay];
-//		date = [[calendar dateFromComponents:components] retain];
-//		name = [[NSString alloc] initWithFormat:@"%02d/%02d/%d", startMonth, startDay, startYear];
-//		weekEndDateString = [[NSString alloc] initWithFormat:@"%02d/%02d/%d", endMonth, endDay, endYear];
-//
-//		NSString *countryString = [columns objectAtIndex:14];
-//		if (countryString.length != 2) { // country code has two characters
-//			[NSException raise:@"invalid country code" format:countryString];
-//		}
-//		NSString *royaltyCurrency = [columns objectAtIndex:15];
-//		
-//		/* Treat in-app purchases as regular purchases for our purposes.
-//		 * IA1: In-App Purchase
-//		 * Presumably, IA7: In-App Free Upgrade / Repurchase.
-//		 */
-//		if ([transactionType isEqualToString:@"IA1"]) {
-//			transactionType = @"1";
-//		}
-//
-//		Country *country = [self countryNamed:countryString]; // will be created on-the-fly if needed.
-//		[[[Entry alloc] initWithProductIdentifier:appId
-//											 name:productName 
-//								  transactionType:[transactionType intValue] 
-//											units:[units intValue] 
-//										royalties:[royalties floatValue] 
-//										 currency:royaltyCurrency
-//										  country:country] release]; // gets added to the countries entry list automatically
-//	}
-//	if (name == nil || date == nil) {
-//		NSLog(@"coulnd't parse CSV: %@", csv);
-//		[self release];
-//		return nil;
-//	}
-
 
 	[self generateSummary];
 	return self;
@@ -280,35 +313,6 @@ static BOOL parseDateString(NSString *dateString, int *year, int *month, int *da
 }
 
 
-- (void)setDate:(NSDate *)inDate
-{
-	if (inDate != date) {
-		[date release];
-
-		/* All dates should be set to midnight. If set otherwise, they were created in a different time zone.
-		 * We want the date corresponding to that midnight; using NSCalendar directly would give us the date in 
-		 * our local time zone.
-		 */
-		NSCalendar *calendar = [NSCalendar currentCalendar];
-		NSDateComponents *components = [calendar components:NSHourCalendarUnit
-												   fromDate:inDate];
-		NSInteger hour = components.hour;
-		if (hour) {
-			NSCalendar *otherCal = [NSCalendar currentCalendar];
-			otherCal.timeZone = [NSTimeZone timeZoneForSecondsFromGMT:[NSTimeZone defaultTimeZone].secondsFromGMT + hour*60*60];
-
-			/* Get the day/month/year as seen in the original time zone */
-			components = [otherCal components:(NSDayCalendarUnit | NSMonthCalendarUnit| NSYearCalendarUnit)
-									 fromDate:inDate];
-			
-			/* Now set to the date with that day/month/year in our own time zone */
-			date = [[calendar dateFromComponents:components] retain];			
-		} else {
-			date = [inDate retain];
-		}
-	}
-	
-}
 - (NSMutableDictionary *)countries
 {	
 	if (isFault) {
@@ -363,34 +367,6 @@ static BOOL parseDateString(NSString *dateString, int *year, int *month, int *da
 	}
 	return country;
 }
-
-- (NSDate *)reportDateFromString:(NSString *)dateString
-{
-	if ((([dateString rangeOfString:@"/"].location != NSNotFound) && ([dateString length] == 10))
-		|| (([dateString rangeOfString:@"/"].location == NSNotFound) && ([dateString length] == 8))) {
-		int year, month, day;
-		if ([dateString rangeOfString:@"/"].location == NSNotFound) { //old date format
-			year = [[dateString substringWithRange:NSMakeRange(0,4)] intValue];
-			month = [[dateString substringWithRange:NSMakeRange(4,2)] intValue];
-			day = [[dateString substringWithRange:NSMakeRange(6,2)] intValue];
-		}
-		else { //new date format
-			year = [[dateString substringWithRange:NSMakeRange(6,4)] intValue];
-			month = [[dateString substringWithRange:NSMakeRange(0,2)] intValue];
-			day = [[dateString substringWithRange:NSMakeRange(3,2)] intValue];
-		}
-		
-		NSCalendar *calendar = [NSCalendar currentCalendar];
-		NSDateComponents *components = [[NSDateComponents new] autorelease];
-		[components setYear:year];
-		[components setMonth:month];
-		[components setDay:day];
-		
-		return [calendar dateFromComponents:components];
-	}
-	return nil;
-}
-
 
 - (NSString *)description
 {
@@ -552,16 +528,6 @@ static BOOL parseDateString(NSString *dateString, int *year, int *month, int *da
 
 - (NSString *)proposedFilename
 {
-//	if (proposedFileName == nil) {
-//		// use year/month/day, so serialized files are sortable by date
-//		NSDateComponents *components = [[NSCalendar currentCalendar] components:NSYearCalendarUnit
-//																				| NSMonthCalendarUnit 
-//																				| NSDayCalendarUnit
-//																	   fromDate:self.date];
-//		NSString *sortableName = [NSString stringWithFormat:@"%d/%02d/%02d", components.year, components.month, components.day];
-//		proposedFileName = [[Day fileNameForString:sortableName extension:@"dat" isWeek:isWeek] retain];
-//	}
-//	return proposedFileName;
 	NSDateFormatter *dateFormatter = [[[NSDateFormatter alloc] init] autorelease];
 	[dateFormatter setDateFormat:@"MM_dd_yyyy"];
 	NSString *dateString = [dateFormatter stringFromDate:self.date];

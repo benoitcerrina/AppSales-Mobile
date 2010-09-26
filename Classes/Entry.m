@@ -32,6 +32,7 @@
 #import "Country.h"
 #import "CurrencyManager.h"
 #import "ReportManager.h"
+#import "AppManager.h"
 
 @implementation Entry
 
@@ -42,6 +43,8 @@
 @synthesize transactionType;
 @synthesize royalties;
 @synthesize units;
+@synthesize inAppPurchase;
+@dynamic purchase;
 
 - (BOOL) purchase
 {
@@ -49,7 +52,7 @@
 }
 
 
-- (id)initWithProductIdentifier:(NSString*)identifier name:(NSString *)name transactionType:(int)type units:(int)u royalties:(float)r currency:(NSString *)currencyCode country:(Country *)aCountry
+- (id)initWithProductIdentifier:(NSString*)identifier name:(NSString *)name transactionType:(int)type units:(int)u royalties:(float)r currency:(NSString *)currencyCode country:(Country *)aCountry inAppPurchase:(BOOL)inApp
 {
 	self = [super init];
 	if (self) {
@@ -78,7 +81,12 @@
 		units = [coder decodeIntForKey:@"units"];
 		royalties = [coder decodeFloatForKey:@"royalties"];
 		productIdentifier = [[coder decodeObjectForKey:@"productIdentifier"] retain];
+		inAppPurchase = [coder decodeBoolForKey:@"inAppPurchase"];
+		
+		if(!productIdentifier)
+			productIdentifier = [[AppManager sharedManager] appIDForAppName:self.productName];
 	}
+
 	return self;
 }
 
@@ -92,6 +100,7 @@
 	[coder encodeInt:self.transactionType forKey:@"transactionType"];
 	[coder encodeInt:self.units forKey:@"units"];
 	[coder encodeFloat:self.royalties forKey:@"royalties"];
+	[coder encodeBool:self.isInAppPurchase forKey:@"inAppPurchase"];
 }
 
 

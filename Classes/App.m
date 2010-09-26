@@ -103,7 +103,8 @@ NSString* getDocPath() {
 	return newReviewsCount;
 }
 
-- (void) dealloc {
+- (void) dealloc
+{
 	[appID release];
 	[appName release];
 	[reviewsByUser release];

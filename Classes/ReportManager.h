@@ -21,8 +21,6 @@
 	BOOL isRefreshing;
 	BOOL needsDataSavedToDisk;
 	NSString *reportDownloadStatus;
-	
-	BOOL cacheChanged;
 }
 
 @property (readonly) NSDictionary *days;
@@ -39,7 +37,6 @@
 
 - (void)deleteDay:(Day *)dayToDelete;
 
-- (Day *)dayWithData:(NSData *)dayData compressed:(BOOL)compressed;
 - (void)saveData;
 - (NSString *)originalReportsPath;
 - (NSString *)reportCachePath;

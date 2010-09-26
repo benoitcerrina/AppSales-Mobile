@@ -53,8 +53,8 @@
 @property (readonly) BOOL isFault;
 @property (retain) NSDictionary *summary;
 
-//+ (NSString*) fileNameForString:(NSString*)fileName extension:(NSString*)fileExtension isWeek:(BOOL)isWeek;
 + (Day *)dayFromCSVFile:(NSString *)filename atPath:(NSString *)docPath;
++ (Day *)dayWithData:(NSData *)dayData compressed:(BOOL)compressed;
 
 - (id)initWithCSV:(NSString *)csv;
 
@@ -66,8 +66,6 @@
 + (Day *)dayWithSummary:(NSDictionary *)reportSummary;
 
 - (Country *)countryNamed:(NSString *)countryName;
-
-- (NSDate *)reportDateFromString:(NSString *)dateString;
 
 - (float)totalRevenueInBaseCurrency;
 - (float)totalRevenueInBaseCurrencyForAppWithID:(NSString *)appID;
