@@ -3181,6 +3181,7 @@
 				PRODUCT_NAME = AppSalesMobile;
 				PROVISIONING_PROFILE = "";
 				RUN_CLANG_STATIC_ANALYZER = NO;
+				SDKROOT = iphoneos;
 			};
 			name = Debug;
 		};
@@ -3207,7 +3208,7 @@
 				PRODUCT_NAME = AppSalesMobile;
 				PROVISIONING_PROFILE = "";
 				RUN_CLANG_STATIC_ANALYZER = NO;
-				SDKROOT = iphoneos4.2;
+				SDKROOT = iphoneos;
 			};
 			name = Release;
 		};
@@ -3226,7 +3227,7 @@
 				PREBINDING = YES;
 				PRODUCT_NAME = AppSales;
 				PROVISIONING_PROFILE = "";
-				SDKROOT = iphoneos4.2;
+				SDKROOT = iphoneos;
 			};
 			name = Distribution;
 		};
