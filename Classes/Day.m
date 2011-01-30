@@ -38,6 +38,7 @@
 #import "AppManager.h"
 #import "NSData+Compression.h"
 #import "NSDateFormatter+SharedInstances.h"
+#import "AppSalesUtils.h"
 
 static BOOL containsOnlyWhiteSpace(NSArray* array) {
 	NSCharacterSet *charSet = [NSCharacterSet whitespaceCharacterSet];
@@ -49,23 +50,6 @@ static BOOL containsOnlyWhiteSpace(NSArray* array) {
 		}
 	}
 	return YES;
-}
-
-static BOOL parseDateString(NSString *dateString, int *year, int *month, int *day) {
-	if ([dateString rangeOfString:@"/"].location == NSNotFound) {
-		if (dateString.length == 8) { // old date format
-			*year = [[dateString substringWithRange:NSMakeRange(0,4)] intValue];
-			*month = [[dateString substringWithRange:NSMakeRange(4,2)] intValue];
-			*day = [[dateString substringWithRange:NSMakeRange(6,2)] intValue];
-			return YES; // parsed ok
-		}
-	} else if (dateString.length == 10) { // new date format
-		*year = [[dateString substringWithRange:NSMakeRange(6,4)] intValue];
-		*month = [[dateString substringWithRange:NSMakeRange(0,2)] intValue];
-		*day = [[dateString substringWithRange:NSMakeRange(3,2)] intValue];
-		return YES;
-	}
-	return NO; // unrecognized string
 }
 
 static NSDate* reportDateFromString(NSString *dateString) {
@@ -183,8 +167,8 @@ static NSDate* reportDateFromString(NSString *dateString) {
             transactionType = [columns objectAtIndex:8];
             units = [columns objectAtIndex:9];
             royalties = [columns objectAtIndex:10];
-            dateColumn = [[columns objectAtIndex:11] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-            toDateColumn = [[columns objectAtIndex:12] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+            dateColumn = [[columns objectAtIndex:11] stringByTrimmingCharactersInSet:whitespaceCharacterSet];
+            toDateColumn = [[columns objectAtIndex:12] stringByTrimmingCharactersInSet:whitespaceCharacterSet];
             countryString = [columns objectAtIndex:14];
             royaltyCurrency = [columns objectAtIndex:15];
             appId = [columns objectAtIndex:18];
@@ -204,7 +188,8 @@ static NSDate* reportDateFromString(NSString *dateString) {
         } else {
             NSLog(@"unknown CSV format: columns %d - %@", numColumns, line);
             [self release];
-            return nil;
+			self = nil;
+            return self;
         }
 			
         [[AppIconManager sharedManager] downloadIconForAppID:appId];
@@ -213,7 +198,8 @@ static NSDate* reportDateFromString(NSString *dateString) {
         if (!fromDate) {
             NSLog(@"Date is invalid: %@", dateColumn);
             [self release];
-            return nil;
+			self = nil;
+            return self;
         } else {
 //            date = [[Day adjustDateToLocalTimeZone:fromDate] retain];
             date = [fromDate retain];
@@ -224,18 +210,28 @@ static NSDate* reportDateFromString(NSString *dateString) {
         if ([countryString length] != 2) {
             NSLog(@"Country code is invalid: %@", countryString);
             [self release];
-            return nil; //sanity check, country code has to have two characters
+			self = nil;
+            return self; //sanity check, country code has to have two characters
         }
         
         //Treat in-app purchases as regular purchases for our purposes.
         //IA1: In-App Purchase
         //IA7: In-App Free Upgrade / Repurchase (?)
         //IA9: In-App Subscription
-        if ([transactionType isEqualToString:@"IA1"]) transactionType = @"2";
-        else
-            if([transactionType isEqualToString:@"IA9"]) transactionType = @"9";
-        else
-            if ([transactionType isEqualToString:@"IA7"]) transactionType = @"7";
+		//F1: Mac Purchase
+		//F7: Mac Update ??? //TODO: Verify this, the iTC guide doesn't say anything about it yet.
+		
+        if ([transactionType isEqualToString:@"IA1"]) {
+			transactionType = @"2";
+		} else if([transactionType isEqualToString:@"IA9"]) {
+			transactionType = @"9";
+		} else if ([transactionType isEqualToString:@"IA7"]) {
+			transactionType = @"7";
+		} else if ([transactionType isEqualToString:@"F1"]) {
+			transactionType = @"1";
+		} else if ([transactionType isEqualToString:@"F7"]) {
+			transactionType = @"7";
+		}
         
         const BOOL inAppPurchase = ![parentID isEqualToString:@" "];
         Country *country = [self countryNamed:countryString]; //will be created on-the-fly if needed.
