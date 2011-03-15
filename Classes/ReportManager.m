@@ -245,7 +245,7 @@ static Day* downloadReport(NSString *originalReportsPath, NSString *ajaxName, NS
     // iTC shows a (fixed?) number of date ranges in the form, even if all of them are not available 
     // if trying to download a report that doesn't exist, it'll return an error page instead of the report
     if ([responseString rangeOfString:@"theForm:errorPanel"].location != NSNotFound) {
-		APPSALESLOG(@"report not available for @% @%", dayString, weekString);
+		APPSALESLOG(@"report not available for %@ %@", dayString, weekString);
         return nil;
     }
     
@@ -520,6 +520,7 @@ static Day* downloadReport(NSString *originalReportsPath, NSString *ajaxName, NS
         AppManager *manager = [AppManager sharedManager];
         for (Country *c in [report.countries allValues]) {
             for (Entry *e in c.entries) {
+				if (e.transactionType==2) { continue; } //skips IAPs in app manager, so IAPs don't duplicate reviews
                 [manager createOrUpdateAppIfNeededWithID:e.productIdentifier name:e.productName];
             }
         }

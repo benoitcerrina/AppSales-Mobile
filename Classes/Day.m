@@ -167,8 +167,8 @@ static NSDate* reportDateFromString(NSString *dateString) {
             transactionType = [columns objectAtIndex:6];
             units = [columns objectAtIndex:7];
             royalties = [columns objectAtIndex:8];
-            dateColumn = [[columns objectAtIndex:9] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-            toDateColumn = [[columns objectAtIndex:10] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+            dateColumn = [[columns objectAtIndex:9] stringByTrimmingCharactersInSet:whitespaceCharacterSet];
+            toDateColumn = [[columns objectAtIndex:10] stringByTrimmingCharactersInSet:whitespaceCharacterSet];
             countryString = [columns objectAtIndex:12];
             royaltyCurrency = [columns objectAtIndex:13];
             appId = [columns objectAtIndex:14];
@@ -192,7 +192,6 @@ static NSDate* reportDateFromString(NSString *dateString) {
             return self;
         }
 			
-        [[AppIconManager sharedManager] downloadIconForAppID:appId];
         NSDate *fromDate = reportDateFromString(dateColumn);
         NSDate *toDate = reportDateFromString(toDateColumn);
         if (!fromDate) {
@@ -213,6 +212,8 @@ static NSDate* reportDateFromString(NSString *dateString) {
 			self = nil;
             return self; //sanity check, country code has to have two characters
         }
+		
+		[[AppIconManager sharedManager] downloadIconForAppID:appId];
         
         //Treat in-app purchases as regular purchases for our purposes.
         //IA1: In-App Purchase

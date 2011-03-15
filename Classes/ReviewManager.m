@@ -7,8 +7,8 @@
 #import "AppManager.h"
 
 // based on the amount of time since the last fetch
-// 'maybe' threshold is the minimum time before an app/region _may_ be downloaded,
-// 'always' threshold is the limit before an app/region _must_ be downloaded
+//  'maybe' threshold is the minimum time before an app/region _may_ be downloaded,
+// 'always' threshold is the minimum time before an app/region _must_ be downloaded
 // 
 // to fetch inactive region/apps less often, set both thresholds to larger values
 #define TIME_THRESHOLD_TO_MAYBE_FETCH_REGION 5 * 60 // 5 minutes
@@ -21,7 +21,7 @@
 // used to pass stuff between background worker threads and main thread
 // could refactor this so this object is doing the update work
 @interface ReviewUpdateBundle : NSObject {
-	@private
+@private
 	NSString *appID;
     NSArray *input;
 	NSMutableArray *needsUpdating;
@@ -52,7 +52,7 @@
 
 
 @interface StoreInfo : NSObject {
-	@private
+@private
 	NSString *countryCode;
 	NSString *storeFrontID;
 	NSString *countryName;
@@ -123,12 +123,8 @@
 }
 
 - (id) init {
-	if (self = [super init]) {
-		NSString *notification = UIApplicationWillTerminateNotification;
-		if (&UIApplicationDidEnterBackgroundNotification) {
-			notification = UIApplicationDidEnterBackgroundNotification;
-		}
-		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(cancel) name:notification object:nil];
+	if ((self = [super init]) != nil) {
+		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(cancel) name:UIApplicationDidEnterBackgroundNotification object:nil];
 	}
 	return self;
 }
@@ -191,11 +187,11 @@
         if (oldReview == nil) { // new review
             [bundle.needsUpdating addObject:fetchedReview]; // needs translation and updating
         } else if (! [oldReview.text isEqual:fetchedReview.text]) {
-			 // fetched review is different than what's stored
+            // fetched review is different than what's stored
             const NSTimeInterval ageOfStaleReviewsToIgnore = 24 * 60 * 60; // 1 day
 			NSComparisonResult compare = [fetchedReview.reviewDate compare:oldReview.reviewDate];
             if ((compare == NSOrderedSame || compare == NSOrderedDescending)
-                    && ageOfStaleReviewsToIgnore < -1*[fetchedReview.reviewDate timeIntervalSinceNow]) {
+                && ageOfStaleReviewsToIgnore < -1*[fetchedReview.reviewDate timeIntervalSinceNow]) {
                 // if a user writes a review then immediately submits a different review, 
                 // occasionally Apples web servers won't propagate the updated review to all it's webservers,
                 // leaving different reviews on different web servers.
@@ -369,7 +365,7 @@
 #if APPSALES_DEBUG
 	NSDate *start = [NSDate date];
 #endif
-
+    
 	downloadDate = [NSDate new];
 	
 	condition = [NSCondition new];
@@ -395,14 +391,14 @@
 	defaultDateFormatter = nil;
 	[downloadDate release];
 	downloadDate = nil;
-		
+    
 	[self performSelectorOnMainThread:@selector(finishDownloadingReviews) withObject:nil waitUntilDone:NO];
     APPSALESLOG(@"update took %f sec", -1*start.timeIntervalSinceNow);
 	[pool release];
 }
 
 - (void) updateReviewDownloadProgress:(NSString*)status {
-//	NSAssert([NSThread isMainThread], nil);
+    //	NSAssert([NSThread isMainThread], nil);
 	[status retain]; // must retain first
 	[reviewDownloadStatus release];
 	reviewDownloadStatus = status;
@@ -411,7 +407,7 @@
 
 - (void) incrementDownloadProgress:(NSNumber*)numAppRegionsFetched {
 	percentComplete += numAppRegionsFetched.integerValue * progressIncrement;
-	NSString *status = [[NSString alloc] initWithFormat:@"%2.0f%% complete", ceil(percentComplete)];
+	NSString *status = [[NSString alloc] initWithFormat:@"%2.0f%% complete", percentComplete];
 	[self updateReviewDownloadProgress:status];
 	[status release];
 }
@@ -604,7 +600,7 @@ static NSInteger numStoreReviewsComparator(id arg1, id arg2, void *arg3) {
 	NSMutableArray *numAllAppRegionReviews = [NSMutableArray arrayWithCapacity:allApps.count * storeInfos.count]; // raw review count for all app regions
 	NSMutableDictionary *numRegionReviews = [NSMutableDictionary dictionaryWithCapacity:storeInfos.count]; // number reviews for all apps (countryCode -> NSNumber) 
 	NSMutableDictionary *appRegionReviews = [NSMutableDictionary dictionaryWithCapacity:allApps.count]; // number of reviews for app region (appID -> (countryCode -> NSNumber))
-
+    
 	for (App *app in allApps) {
 		NSMutableDictionary *numAppRegionReviews = [NSMutableDictionary dictionaryWithCapacity:storeInfos.count];
 		[appRegionReviews setValue:numAppRegionReviews forKey:app.appID];
