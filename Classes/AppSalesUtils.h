@@ -8,6 +8,17 @@
 #endif
 
 
+#define ASSERT_IS_MAIN_THREAD() NSAssert([NSThread isMainThread], @"must call from main thread");
+#define ASSERT_NOT_MAIN_THREAD() NSAssert([NSThread isMainThread] == false, @"do not call from main thread");
+
+#define RELEASE_SAFELY(__PTR) { [__PTR release]; __PTR = nil; }
+
+static inline id ASSERT_NOT_NULL(id __PTR) {
+    NSCAssert(__PTR, nil);
+    return __PTR;
+}
+
+
 __attribute__((constructor)) // run this function run when the app loads
 static void InitRandom() {
 	srandom(time(NULL));

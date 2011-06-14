@@ -144,8 +144,7 @@
 	return isRefreshing;
 }
 
-- (void)downloadReports
-{
+- (void)downloadReports {
 	if (isRefreshing) {
 		return;
 	}
@@ -226,8 +225,8 @@ static NSString* parseViewState(NSString *htmlPage) {
 }
 
 // code path shared for both day and week downloads
-static Day* downloadReport(NSString *originalReportsPath, NSString *ajaxName, NSString *dayString, 
-                           NSString *weekString, NSString *selectName, NSString **viewState, BOOL *error)  {
+- (Day*) downloadReportFromiTC:(NSString*)originalReportsPath ajaxName:(NSString*)ajaxName dayString:(NSString*)dayString
+             weekString:(NSString*)weekString selectName:(NSString*)selectName viewState:(NSString**)viewState uiStatus:(NSString*)uiStatus error:(BOOL*)error  {
     // set the date within the web page
     NSDictionary *postDict = [NSDictionary dictionaryWithObjectsAndKeys:
                               ajaxName, @"AJAXREQUEST",
@@ -249,6 +248,8 @@ static Day* downloadReport(NSString *originalReportsPath, NSString *ajaxName, NS
         return nil;
     }
     
+    [self performSelectorOnMainThread:@selector(setProgress:) withObject:uiStatus waitUntilDone:NO];
+    
     // and finally...we're ready to download the report
     postDict = [NSDictionary dictionaryWithObjectsAndKeys:
                 @"theForm", @"theForm",
@@ -262,6 +263,11 @@ static Day* downloadReport(NSString *originalReportsPath, NSString *ajaxName, NS
     NSHTTPURLResponse *downloadResponse = nil;
     NSData *requestResponseData = getPostRequestAsData(ITTS_SALES_PAGE_URL, postDict, &downloadResponse);
     NSString *originalFilename = [[downloadResponse allHeaderFields] objectForKey:@"Filename"];
+    
+    if (! originalFilename ) { // iOS 5 beta 1 fix
+        originalFilename = [[downloadResponse allHeaderFields] objectForKey:@"filename"];
+    }
+    
     if (originalFilename) {
         [requestResponseData writeToFile:[originalReportsPath stringByAppendingPathComponent:originalFilename] atomically:YES];
         return[Day dayWithData:requestResponseData compressed:YES];
@@ -273,11 +279,10 @@ static Day* downloadReport(NSString *originalReportsPath, NSString *ajaxName, NS
     }   
 }
 
-- (void)fetchReportsWithUserInfo:(NSDictionary *)userInfo
-{
+- (void)fetchReportsWithUserInfo:(NSDictionary *)userInfo {
 	NSAutoreleasePool *pool = [NSAutoreleasePool new];
 	NSScanner *scanner;
-    [self performSelectorOnMainThread:@selector(setProgress:) withObject:NSLocalizedString(@"Starting Download...",nil) waitUntilDone:NO];
+    [self performSelectorOnMainThread:@selector(setProgress:) withObject:NSLocalizedString(@"Starting Download",nil) waitUntilDone:NO];
     
 	NSArray *daysToSkipDates = [userInfo objectForKey:@"daysToSkip"];
 	NSArray *weeksToSkipDates = [userInfo objectForKey:@"weeksToSkip"];
@@ -306,7 +311,7 @@ static Day* downloadReport(NSString *originalReportsPath, NSString *ajaxName, NS
     NSURL *loginURL = [NSURL URLWithString:[ittsBaseURL stringByAppendingString:ittsLoginPageAction]];
     NSString *loginPage = [NSString stringWithContentsOfURL:loginURL usedEncoding:NULL error:NULL];
     if ([loginPage rangeOfString:signoutSentinel].location == NSNotFound) {
-        [self performSelectorOnMainThread:@selector(setProgress:) withObject:NSLocalizedString(@"Logging in...",nil) waitUntilDone:NO];
+        [self performSelectorOnMainThread:@selector(setProgress:) withObject:NSLocalizedString(@"Logging in",nil) waitUntilDone:NO];
         
         // find the login action
         scanner = [NSScanner scannerWithString:loginPage];
@@ -327,11 +332,13 @@ static Day* downloadReport(NSString *originalReportsPath, NSString *ajaxName, NS
                                   nil];
         loginPage = getPostRequestAsString([ittsBaseURL stringByAppendingString:loginAction], postDict);
         if (loginPage == nil || [loginPage rangeOfString:signoutSentinel].location == NSNotFound) {
-            [self performSelectorOnMainThread:@selector(downloadFailed:) withObject:@"could not load iTunes Connect login page" waitUntilDone:NO];
+            [self performSelectorOnMainThread:@selector(downloadFailed:) withObject:@"could not load iTunes Connect login page (double check your username and password!)" waitUntilDone:NO];
             [pool release];
             return;
         }
     } // else, already logged in
+    
+    [self performSelectorOnMainThread:@selector(setProgress:) withObject:NSLocalizedString(@"Checking for new reports",nil) waitUntilDone:NO];
 	
     // load sales/trends page.
     NSError *error = nil;
@@ -419,21 +426,28 @@ static Day* downloadReport(NSString *originalReportsPath, NSString *ajaxName, NS
     NSString *responseString = getPostRequestAsString(ITTS_SALES_PAGE_URL, postDict);
     viewState = parseViewState(responseString);
     
+    int numberOfReportsDownloaded = 0;
+    
     // download daily reports
+    int numReportsActuallyAvailable = availableDays.count;
     int count = 1;
     for (NSString *dayString in availableDays) {
-        NSString *progressMessage = [NSString stringWithFormat:NSLocalizedString(@"Downloading day %d of %d",nil), count, availableDays.count];
-        count++;
-        [self performSelectorOnMainThread:@selector(setProgress:) withObject:progressMessage waitUntilDone:NO];
         BOOL error = false;
-        Day *day = downloadReport(originalReportsPath, ajaxName, dayString, arbitraryWeek, daySelectName, &viewState, &error);
+        NSString *progressMessage = [NSString stringWithFormat:NSLocalizedString(@"Downloading day %d of %d",nil), count, numReportsActuallyAvailable];
+        Day *day = [self downloadReportFromiTC:originalReportsPath ajaxName:ajaxName dayString:dayString weekString:arbitraryWeek
+                                    selectName:daySelectName viewState:&viewState uiStatus:progressMessage error:&error];
         if (day) {
-            [self performSelectorOnMainThread:@selector(successfullyDownloadedReport:) withObject:day waitUntilDone:NO];            
+            count++;
+            [self performSelectorOnMainThread:@selector(successfullyDownloadedReport:) withObject:day waitUntilDone:NO];
+            numberOfReportsDownloaded++;
         } else if (error) {
-            NSString *message = [@"could not download " stringByAppendingString:dayString];
+            NSString *message = [NSLocalizedString(@"could not download ",nil) stringByAppendingString:dayString];
             [self performSelectorOnMainThread:@selector(downloadFailed:) withObject:message waitUntilDone:NO];
             [pool release];
-            return;            
+            return;
+        } else {
+            // iTC showed a an option for a report that wasn't available
+            numReportsActuallyAvailable--;
         }
     }
     
@@ -452,28 +466,33 @@ static Day* downloadReport(NSString *originalReportsPath, NSString *ajaxName, NS
     }
     
     // download weekly reports
+    numReportsActuallyAvailable = availableWeeks.count;
     count = 1;
     for (NSString *weekString in availableWeeks) {
-        NSString *progressMessage = [NSString stringWithFormat:NSLocalizedString(@"Downloading week %d of %d",nil), count, availableWeeks.count];
-        count++;
-        [self performSelectorOnMainThread:@selector(setProgress:) withObject:progressMessage waitUntilDone:NO];
         BOOL error = false;
-        Day *week = downloadReport(originalReportsPath, ajaxName, arbitraryDay, weekString, weekSelectName, &viewState, &error);
+        NSString *progressMessage = [NSString stringWithFormat:NSLocalizedString(@"Downloading week %d of %d",nil), count, numReportsActuallyAvailable];
+        Day *week = [self downloadReportFromiTC:originalReportsPath ajaxName:ajaxName dayString:arbitraryDay weekString:weekString
+                                     selectName:weekSelectName viewState:&viewState uiStatus:progressMessage error:&error];
         if (week) {
-            [self performSelectorOnMainThread:@selector(successfullyDownloadedReport:) withObject:week waitUntilDone:NO];   
+            count++;
+            [self performSelectorOnMainThread:@selector(setProgress:) withObject:progressMessage waitUntilDone:NO];
+            [self performSelectorOnMainThread:@selector(successfullyDownloadedReport:) withObject:week waitUntilDone:NO];
+            numberOfReportsDownloaded++;
         } else if (error) {
-            NSString *message = [@"could not download " stringByAppendingString:weekString];
+            NSString *message = [NSLocalizedString(@"could not download ",nil) stringByAppendingString:weekString];
             [self performSelectorOnMainThread:@selector(downloadFailed:) withObject:message waitUntilDone:NO];
             [pool release];
             return;
+        } else {
+            numReportsActuallyAvailable--;
         }
     }
 	
-	if (availableDays.count == 0 && availableWeeks.count == 0) {
-		[self performSelectorOnMainThread:@selector(setProgress:) withObject:NSLocalizedString(@"No new reports found",nil) waitUntilDone:NO];
-	} else {
+	if (numberOfReportsDownloaded) {
 		[self performSelectorOnMainThread:@selector(setProgress:) withObject:@"" waitUntilDone:NO];
 		[self performSelectorOnMainThread:@selector(saveData) withObject:nil waitUntilDone:NO];
+	} else {
+        [self performSelectorOnMainThread:@selector(setProgress:) withObject:NSLocalizedString(@"No new reports found",nil) waitUntilDone:NO];
 	} 
     
 	[self performSelectorOnMainThread:@selector(finishFetchingReports) withObject:nil waitUntilDone:NO];
@@ -481,8 +500,7 @@ static Day* downloadReport(NSString *originalReportsPath, NSString *ajaxName, NS
 }
 
 - (void) finishFetchingReports {
-	NSAssert([NSThread isMainThread], nil);
-	
+    ASSERT_IS_MAIN_THREAD();
 	isRefreshing = NO;
 	[UIApplication sharedApplication].idleTimerDisabled = NO;
 	[[NSNotificationCenter defaultCenter] postNotificationName:ReportManagerUpdatedDownloadProgressNotification object:self];
@@ -492,7 +510,7 @@ static Day* downloadReport(NSString *originalReportsPath, NSString *ajaxName, NS
 
 - (void)downloadFailed:(NSString*)error
 {
-    NSAssert([NSThread isMainThread], nil);
+    ASSERT_IS_MAIN_THREAD();
 	[UIApplication sharedApplication].idleTimerDisabled = NO;
 	NSString *message = NSLocalizedString(
 										  @"Sorry, an error occured when trying to download the report files. Please check your username, password and internet connection.",nil);
@@ -520,7 +538,11 @@ static Day* downloadReport(NSString *originalReportsPath, NSString *ajaxName, NS
         AppManager *manager = [AppManager sharedManager];
         for (Country *c in [report.countries allValues]) {
             for (Entry *e in c.entries) {
-				if (e.transactionType==2) { continue; } //skips IAPs in app manager, so IAPs don't duplicate reviews
+				if (e.transactionType == 2 || e.transactionType == 9) {
+                    //skips IAPs in app manager, so IAPs don't duplicate reviews
+                    [manager removeAppWithID:e.productIdentifier];
+                    continue;
+                } 
                 [manager createOrUpdateAppIfNeededWithID:e.productIdentifier name:e.productName];
             }
         }
@@ -534,6 +556,11 @@ static Day* downloadReport(NSString *originalReportsPath, NSString *ajaxName, NS
 	AppManager *manager = [AppManager sharedManager];
 	for (Country *c in [report.countries allValues]) {
 		for (Entry *e in c.entries) {
+            if (e.transactionType == 2 || e.transactionType == 9) {
+                //skips IAPs in app manager, so IAPs don't duplicate reviews
+                [manager removeAppWithID:e.productIdentifier];
+                continue;
+            } 
 			[manager createOrUpdateAppIfNeededWithID:e.productIdentifier name:e.productName];
 		}
 	}
@@ -587,7 +614,7 @@ static Day* downloadReport(NSString *originalReportsPath, NSString *ajaxName, NS
 
 - (void)saveData
 {
-    NSAssert([NSThread isMainThread], nil);
+    ASSERT_IS_MAIN_THREAD();
 	[[AppManager sharedManager] saveToDisk];
 	
 	//save all days/weeks in separate files:

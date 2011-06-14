@@ -18,21 +18,27 @@
 // decrease value to check less active regions less often
 #define PERCENT_OF_MOST_ACTIVE_REGIONS_TO_ALWAYS_DOWNLOAD 0.7f
 
+// upper limit of new reviews to fetch, for any one app in any region.
+// if you have tons of reviews and only interested in reading the latest reviews, reduce this number to keep the UI more responsive
+#define MAX_NUM_REVIEWS_PER_REGION_TO_FETCH 300
+
+
 // used to pass stuff between background worker threads and main thread
-// could refactor this so this object is doing the update work
 @interface ReviewUpdateBundle : NSObject {
 @private
 	NSString *appID;
     NSArray *input;
 	NSMutableArray *needsUpdating;
+    BOOL foundReviewsOfCurrentVersion;
 }
 @property (retain, readonly) NSString *appID;
 @property (retain, readonly) NSArray *input; // reviews to check
 @property (retain, readonly) NSMutableArray *needsUpdating; // new or updated reviews that need further processing
+@property (readonly) BOOL foundReviewsOfCurrentVersion; // needsUpdating contains reviews of the current app version (as opposed to reviews of older app versions) 
 @end
 
 @implementation ReviewUpdateBundle
-@synthesize appID, input, needsUpdating;
+@synthesize appID, input, needsUpdating, foundReviewsOfCurrentVersion;
 - (id) initWithAppID:(NSString*)idTouse reviews:(NSArray*)reviews {
 	self = [super init];
     if (self) {
@@ -41,6 +47,41 @@
         needsUpdating = [NSMutableArray new];        
     }
 	return self;
+}
+
+- (void) checkIfReviewsUpToDate {
+    ASSERT_IS_MAIN_THREAD();
+	App *app = [[AppManager sharedManager] appWithID:appID];
+	
+	NSDictionary *existingReviews = app.reviewsByUser;
+    for (Review *fetchedReview in input) {
+        Review *oldReview = [existingReviews objectForKey:fetchedReview.user];
+        if (oldReview == nil) { // new review
+            [needsUpdating addObject:fetchedReview]; // needs translation and updating
+            if ([fetchedReview.version isEqualToString:app.currentVersion]) {
+                foundReviewsOfCurrentVersion = true;
+            }
+        } else if (! [oldReview.text isEqual:fetchedReview.text]) {
+            // fetched review is different than what's stored
+            const NSTimeInterval ageOfStaleReviewsToIgnore = 24 * 60 * 60; // 1 day
+			NSComparisonResult compare = [fetchedReview.reviewDate compare:oldReview.reviewDate];
+            if ((compare == NSOrderedSame || compare == NSOrderedDescending)
+                && ageOfStaleReviewsToIgnore < -1*[fetchedReview.reviewDate timeIntervalSinceNow]) {
+                // if a user writes a review then immediately submits a different review, 
+                // occasionally Apples web servers won't propagate the updated review to all it's webservers,
+                // leaving different reviews on different web servers.
+                // When fetching the reviews, the review will switch back and forth between the 
+                // old and updated review (and reporting as 'new' in AppSales), when it's really just inconsistent data from Apple. 
+                // we'll stop this by ignoring the stale data after downloading
+                APPSALESLOG(@"ignoring stale review %@", fetchedReview);
+            } else {
+                [needsUpdating addObject:fetchedReview];
+                if ([fetchedReview.version isEqualToString:app.currentVersion]) {
+                    foundReviewsOfCurrentVersion = true;
+                }
+            }
+        }
+    }
 }
 - (void) dealloc {
     [appID release];
@@ -177,38 +218,9 @@
 	[condition unlock];	
 }
 
-- (void) checkIfReviewsUpToDate:(ReviewUpdateBundle*)bundle {
-	NSAssert([NSThread isMainThread], nil);
-	App *app = [[AppManager sharedManager] appWithID:bundle.appID];
-	
-	NSDictionary *existingReviews = app.reviewsByUser;
-    for (Review *fetchedReview in bundle.input) {
-        Review *oldReview = [existingReviews objectForKey:fetchedReview.user];
-        if (oldReview == nil) { // new review
-            [bundle.needsUpdating addObject:fetchedReview]; // needs translation and updating
-        } else if (! [oldReview.text isEqual:fetchedReview.text]) {
-            // fetched review is different than what's stored
-            const NSTimeInterval ageOfStaleReviewsToIgnore = 24 * 60 * 60; // 1 day
-			NSComparisonResult compare = [fetchedReview.reviewDate compare:oldReview.reviewDate];
-            if ((compare == NSOrderedSame || compare == NSOrderedDescending)
-                && ageOfStaleReviewsToIgnore < -1*[fetchedReview.reviewDate timeIntervalSinceNow]) {
-                // if a user writes a review then immediately submits a different review, 
-                // occasionally Apples web servers won't propagate the updated review to all it's webservers,
-                // leaving different reviews on different web servers.
-                // When fetching the reviews, the review will switch back and forth between the 
-                // old and updated review (and reporting as 'new' in AppSales), when it's really just inconsistent data from Apple. 
-                // we'll stop this by ignoring the stale data after downloading
-                APPSALESLOG(@"ignoring stale review %@", fetchedReview);
-            } else {
-                [bundle.needsUpdating addObject:fetchedReview];
-            }
-        }
-    }
-}
-
 // called after translating new or updated reviews
 - (void) addReviews:(ReviewUpdateBundle*)bundle {
-	NSAssert([NSThread isMainThread], nil);
+    ASSERT_IS_MAIN_THREAD();
 	App *app = [[AppManager sharedManager] appWithID:bundle.appID];
     for (Review *fetchedReivew in bundle.needsUpdating) {
         [app addOrReplaceReview:fetchedReivew];        
@@ -217,7 +229,7 @@
 }
 
 - (void) workerThreadFetch { // called by worker threads
-    NSAssert(! [NSThread isMainThread], nil);
+    ASSERT_NOT_MAIN_THREAD();
 	NSAutoreleasePool *outerPool = [NSAutoreleasePool new];
 	@try {
 		NSMutableURLRequest *request = [[NSMutableURLRequest new] autorelease];
@@ -241,7 +253,7 @@
             
 			NSString *storeFrontID = storeInfo.storeFrontID;
 			NSString *storeFront = [storeFrontID stringByAppendingString:@"-1"];
-			[headers setObject:@"iTunes/4.2 (Macintosh; U; PPC Mac OS X 10.2)" forKey:@"User-Agent"];
+			[headers setObject:@"iTunes/9.2.1 (Macintosh; Intel Mac OS X 10.5.8) AppleWebKit/533.16" forKey:@"User-Agent"];
 			[headers setObject:storeFront forKey:@"X-Apple-Store-Front"];
 			[request setAllHTTPHeaderFields:headers];
 			[request setCachePolicy:NSURLRequestReloadIgnoringLocalCacheData];
@@ -255,95 +267,112 @@
 				APPSALESLOG(@"fetching %@ %@", countryCode, appID);
 				NSAutoreleasePool *singleAppPool = [NSAutoreleasePool new];
                 regionsFetched++;
-				
-				NSString *reviewsURLString = [NSString stringWithFormat:@"http://ax.phobos.apple.com.edgesuite.net/WebObjects/MZStore.woa/wa/viewContentsUserReviews?id=%@&pageNumber=0&sortOrdering=4&type=Purple+Software", appID];
-				[request setURL:[NSURL URLWithString:reviewsURLString]];
-				
-				NSData *data = [NSURLConnection sendSynchronousRequest:request returningResponse:NULL error:NULL];
-				if (cancelRequested) { // check after making slow network call
-					return;
-				}
-				NSString *xml = [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] autorelease];
-                
-				NSScanner *scanner = [NSScanner scannerWithString:xml];
-                NSMutableArray *input = [NSMutableArray array];
-				do {
-					NSAutoreleasePool *singleReviewPool = [NSAutoreleasePool new];
-					
-					NSString *reviewTitle = nil;
-					NSString *reviewDateAndVersion = nil;
-					NSString *reviewUser = nil;
-					NSString *reviewText = nil;
-					NSString *reviewStars = nil;
-					NSString *reviewVersion = nil;
-					NSDate *reviewDate = nil;
-					
-					[scanner scanUpToString:@"<TextView topInset=\"0\" truncation=\"right\" leftInset=\"0\" squishiness=\"1\" styleSet=\"basic13\" textJust=\"left\" maxLines=\"1\">" intoString:NULL];
-					[scanner scanUpToString:@"<b>" intoString:NULL];
-					[scanner scanString:@"<b>" intoString:NULL];
-					[scanner scanUpToString:@"</b>" intoString:&reviewTitle];
-					
-					[scanner scanUpToString:@"<HBoxView topInset=\"1\" alt=\"" intoString:NULL];
-					[scanner scanString:@"<HBoxView topInset=\"1\" alt=\"" intoString:NULL];
-					[scanner scanUpToString:@" " intoString:&reviewStars];
-					
-					[scanner scanUpToString:@"viewUsersUserReviews" intoString:NULL];
-					[scanner scanString:@"viewUsersUserReviews" intoString:NULL];
-					[scanner scanUpToString:@">" intoString:NULL];
-					[scanner scanString:@">" intoString:NULL];
-					[scanner scanUpToString:@"</GotoURL>" intoString:&reviewUser];
-					reviewUser = [reviewUser stringByReplacingOccurrencesOfString:@"<b>" withString:@""]; // should use a regular expression to strip html tags
-					reviewUser = [reviewUser stringByReplacingOccurrencesOfString:@"</b>" withString:@""];
-					reviewUser = [reviewUser stringByTrimmingCharactersInSet:whitespaceAndNewlineCharacterSet];
-					
-					[scanner scanUpToString:@" - " intoString:NULL];
-					[scanner scanString:@" - " intoString:NULL];
-					[scanner scanUpToString:@"</SetFontStyle>" intoString:&reviewDateAndVersion];
-					reviewDateAndVersion = [reviewDateAndVersion stringByReplacingOccurrencesOfString:@"\n" withString:@""];
-					NSArray *dateVersionSplitted = [reviewDateAndVersion componentsSeparatedByString:@"- "];
-					if (dateVersionSplitted.count == 2) {
-						NSString *date = [dateVersionSplitted objectAtIndex:1];
-						date = [date stringByTrimmingCharactersInSet:whitespaceCharacterSet];
-						reviewDate = [dateFormatter dateFromString:date];						
-					} else if (dateVersionSplitted.count == 3) {
-						NSString *version = [dateVersionSplitted objectAtIndex:1];
-						reviewVersion = [version stringByTrimmingCharactersInSet:whitespaceCharacterSet];
-						NSString *date = [dateVersionSplitted objectAtIndex:2];
-						date = [date stringByTrimmingCharactersInSet:whitespaceCharacterSet];
-						reviewDate = [dateFormatter dateFromString:date];
-					}
-					
-					[scanner scanUpToString:@"<SetFontStyle normalStyle=\"textColor\">" intoString:NULL];
-					[scanner scanString:@"<SetFontStyle normalStyle=\"textColor\">" intoString:NULL];
-					[scanner scanUpToString:@"</SetFontStyle>" intoString:&reviewText];
-					
-					if (reviewUser && reviewTitle && reviewText && reviewStars) {
-						Review *review = [[Review alloc] initWithUser:[reviewUser removeHtmlEscaping]
-														   reviewDate:reviewDate
-														 downloadDate:downloadDate
-                                                              version:reviewVersion
-														  countryCode:countryCode
-																title:[reviewTitle removeHtmlEscaping] 
-																 text:[reviewText removeHtmlEscaping]
-																stars:[reviewStars intValue]];
-                        [input addObject:review];
-						[review release];
-					}
-					
-					[singleReviewPool release];
-				} while (! [scanner isAtEnd]);
-                
-                // check if any reviews are new or updated and need further processing
-                if (input.count) {
-                    ReviewUpdateBundle *bundle = [[[ReviewUpdateBundle alloc] initWithAppID:appID reviews:input] autorelease];
-                    [self performSelectorOnMainThread:@selector(checkIfReviewsUpToDate:) withObject:bundle waitUntilDone:YES];
-                    if (bundle.needsUpdating.count) {
-                        for (Review *fetchedReview in bundle.needsUpdating) {
-                            [fetchedReview updateTranslations];
-                        }
-                        [self performSelectorOnMainThread:@selector(addReviews:) withObject:bundle waitUntilDone:YES];		
+
+                // number of new reviews that must be downloaded from a page before checking the the next page
+                const NSInteger thresholdForParsingNextPage = 20;
+                NSInteger pageNumber = 0;
+                NSInteger totalNumberOfNewReviews = 0; // number of new reviews parsed for all pages
+                NSInteger numFetchedNewReviews; // number of new reviews parsed on the page
+                BOOL foundNewReviewsForCurrentAppVersion;
+                do {
+                    numFetchedNewReviews = 0;
+                    foundNewReviewsForCurrentAppVersion = false;
+                    NSString *reviewsURLString = [NSString stringWithFormat:@"http://ax.phobos.apple.com.edgesuite.net/WebObjects/MZStore.woa/wa/viewContentsUserReviews?id=%@&pageNumber=%d&sortOrdering=4&type=Purple+Software", appID, pageNumber];
+                    pageNumber++;
+                    [request setURL:[NSURL URLWithString:reviewsURLString]];
+                    
+                    NSData *data = [NSURLConnection sendSynchronousRequest:request returningResponse:NULL error:NULL];
+                    if (cancelRequested) { // check after making slow network call
+                        return;
                     }
-                }
+                    NSString *xml = [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] autorelease];
+                    NSScanner *scanner = [NSScanner scannerWithString:xml];
+                    NSMutableArray *input = [NSMutableArray array];
+                    do {
+                        NSAutoreleasePool *singleReviewPool = [NSAutoreleasePool new];
+                        
+                        NSString *reviewTitle = nil;
+                        NSString *reviewDateAndVersion = nil;
+                        NSString *reviewUser = nil;
+                        NSString *reviewText = nil;
+                        NSString *reviewStars = nil;
+                        NSString *reviewVersion = nil;
+                        NSDate *reviewDate = nil;
+                        
+                        [scanner scanUpToString:@"<TextView topInset=\"0\" truncation=\"right\" leftInset=\"0\" squishiness=\"1\" styleSet=\"basic13\" textJust=\"left\" maxLines=\"1\">" intoString:NULL];
+                        [scanner scanUpToString:@"<b>" intoString:NULL];
+                        [scanner scanString:@"<b>" intoString:NULL];
+                        [scanner scanUpToString:@"</b>" intoString:&reviewTitle];
+                        
+                        [scanner scanUpToString:@"<HBoxView topInset=\"1\" alt=\"" intoString:NULL];
+                        [scanner scanString:@"<HBoxView topInset=\"1\" alt=\"" intoString:NULL];
+                        [scanner scanUpToString:@" " intoString:&reviewStars];
+                        
+                        [scanner scanUpToString:@"viewUsersUserReviews" intoString:NULL];
+                        [scanner scanString:@"viewUsersUserReviews" intoString:NULL];
+                        [scanner scanUpToString:@">" intoString:NULL];
+                        [scanner scanString:@">" intoString:NULL];
+                        [scanner scanUpToString:@"</GotoURL>" intoString:&reviewUser];
+                        reviewUser = [reviewUser stringByReplacingOccurrencesOfString:@"<b>" withString:@""]; // should use a regular expression to strip html tags
+                        reviewUser = [reviewUser stringByReplacingOccurrencesOfString:@"</b>" withString:@""];
+                        reviewUser = [reviewUser stringByTrimmingCharactersInSet:whitespaceAndNewlineCharacterSet];
+                        
+                        [scanner scanUpToString:@" - " intoString:NULL];
+                        [scanner scanString:@" - " intoString:NULL];
+                        [scanner scanUpToString:@"</SetFontStyle>" intoString:&reviewDateAndVersion];
+                        reviewDateAndVersion = [reviewDateAndVersion stringByReplacingOccurrencesOfString:@"\n" withString:@""];
+                        NSArray *dateVersionSplitted = [reviewDateAndVersion componentsSeparatedByString:@"- "];
+                        if (dateVersionSplitted.count == 2) {
+                            NSString *version = [dateVersionSplitted objectAtIndex:0];
+                            reviewVersion = [version stringByTrimmingCharactersInSet:whitespaceCharacterSet];
+                            NSString *date = [dateVersionSplitted objectAtIndex:1];
+                            date = [date stringByTrimmingCharactersInSet:whitespaceCharacterSet];
+                            reviewDate = [dateFormatter dateFromString:date];
+                        } else if (dateVersionSplitted.count == 3) {
+                            NSString *version = [dateVersionSplitted objectAtIndex:1];
+                            reviewVersion = [version stringByTrimmingCharactersInSet:whitespaceCharacterSet];
+                            NSString *date = [dateVersionSplitted objectAtIndex:2];
+                            date = [date stringByTrimmingCharactersInSet:whitespaceCharacterSet];
+                            reviewDate = [dateFormatter dateFromString:date];
+                        }
+                        
+                        [scanner scanUpToString:@"<SetFontStyle normalStyle=\"textColor\">" intoString:NULL];
+                        [scanner scanString:@"<SetFontStyle normalStyle=\"textColor\">" intoString:NULL];
+                        [scanner scanUpToString:@"</SetFontStyle>" intoString:&reviewText];
+                        
+                        if (reviewUser && reviewTitle && reviewText && reviewStars) {
+                            Review *review = [[Review alloc] initWithUser:[reviewUser removeHtmlEscaping]
+                                                               reviewDate:reviewDate
+                                                             downloadDate:downloadDate
+                                                                  version:reviewVersion
+                                                              countryCode:countryCode
+                                                                    title:[reviewTitle removeHtmlEscaping] 
+                                                                     text:[reviewText removeHtmlEscaping]
+                                                                    stars:[reviewStars intValue]];
+                            [input addObject:review];
+                            [review release];
+                        }
+                        [singleReviewPool release];
+                    } while (! [scanner isAtEnd]);
+                    
+                    // check if any reviews are new or updated and need further processing
+                    if (input.count) {
+                        // we could bundle up all reviews for every page, 
+                        // but it can overload google translate so we'll translate reviews on each page separately
+                        ReviewUpdateBundle *bundle = [[[ReviewUpdateBundle alloc] initWithAppID:appID reviews:input] autorelease];
+                        [bundle performSelectorOnMainThread:@selector(checkIfReviewsUpToDate) withObject:nil waitUntilDone:YES];
+                        numFetchedNewReviews = bundle.needsUpdating.count;
+                        totalNumberOfNewReviews += numFetchedNewReviews;
+                        foundNewReviewsForCurrentAppVersion = bundle.foundReviewsOfCurrentVersion;
+                        if (bundle.needsUpdating.count) {
+                            [Review updateTranslations:bundle.needsUpdating];
+                            [self performSelectorOnMainThread:@selector(addReviews:) withObject:bundle waitUntilDone:YES];		
+                        }
+                    }
+                } while (foundNewReviewsForCurrentAppVersion
+                         && numFetchedNewReviews >= thresholdForParsingNextPage
+                         && totalNumberOfNewReviews < MAX_NUM_REVIEWS_PER_REGION_TO_FETCH);
+                                
 				[singleAppPool release];
 			}
             if (regionsFetched) {
@@ -361,7 +390,7 @@
 
 - (void) updateReviews {
 	NSAutoreleasePool *pool = [NSAutoreleasePool new];
-	NSAssert(! [NSThread isMainThread], nil);
+    ASSERT_NOT_MAIN_THREAD();
 #if APPSALES_DEBUG
 	NSDate *start = [NSDate date];
 #endif
@@ -379,18 +408,12 @@
 	[condition unlock];
     
     // cleanup
-	[condition release];
-	condition = nil;
-	[allAppIds release];
-	allAppIds = nil;
-    [appIDtoStoreRegion release];
-    appIDtoStoreRegion = nil;
-	[storeInfos release];
-	storeInfos = nil;
-	[defaultDateFormatter release];
-	defaultDateFormatter = nil;
-	[downloadDate release];
-	downloadDate = nil;
+	RELEASE_SAFELY(condition);
+	RELEASE_SAFELY(allAppIds);
+    RELEASE_SAFELY(appIDtoStoreRegion);
+	RELEASE_SAFELY(storeInfos);
+	RELEASE_SAFELY(defaultDateFormatter);
+	RELEASE_SAFELY(downloadDate);
     
 	[self performSelectorOnMainThread:@selector(finishDownloadingReviews) withObject:nil waitUntilDone:NO];
     APPSALESLOG(@"update took %f sec", -1*start.timeIntervalSinceNow);
@@ -398,7 +421,7 @@
 }
 
 - (void) updateReviewDownloadProgress:(NSString*)status {
-    //	NSAssert([NSThread isMainThread], nil);
+    //	    ASSERT_IS_MAIN_THREAD();
 	[status retain]; // must retain first
 	[reviewDownloadStatus release];
 	reviewDownloadStatus = status;
@@ -407,7 +430,7 @@
 
 - (void) incrementDownloadProgress:(NSNumber*)numAppRegionsFetched {
 	percentComplete += numAppRegionsFetched.integerValue * progressIncrement;
-	NSString *status = [[NSString alloc] initWithFormat:@"%2.0f%% complete", percentComplete];
+	NSString *status = [[NSString alloc] initWithFormat:NSLocalizedString(@"%2.0f%% complete", nil), percentComplete];
 	[self updateReviewDownloadProgress:status];
 	[status release];
 }
@@ -425,7 +448,7 @@ static NSInteger numStoreReviewsComparator(id arg1, id arg2, void *arg3) {
 }
 
 - (void) downloadReviews {
-	NSAssert([NSThread isMainThread], nil);
+    ASSERT_IS_MAIN_THREAD();
 	if (isDownloadingReviews) {
 		return;
 	}
@@ -702,7 +725,7 @@ static NSInteger numStoreReviewsComparator(id arg1, id arg2, void *arg3) {
 }
 
 - (void) finishDownloadingReviews {
-	NSAssert([NSThread isMainThread], nil);	
+    ASSERT_IS_MAIN_THREAD();
 	isDownloadingReviews = NO;
 	
 	[[AppManager sharedManager] saveToDisk];
