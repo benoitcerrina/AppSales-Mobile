@@ -40,7 +40,7 @@
 	if (self) {
 		days = [NSMutableDictionary new];
 		weeks = [NSMutableDictionary new];
-		
+	
 		BOOL cacheLoaded = [self loadReportCache];
 		if (!cacheLoaded) {
 			[[ProgressHUD sharedHUD] setText:NSLocalizedString(@"Updating Cache...",nil)];
@@ -63,7 +63,9 @@
 		return NO;
 	}
 	NSDictionary *reportCache = [NSKeyedUnarchiver unarchiveObjectWithFile:reportCacheFile];
+	
 	if (!reportCache) {
+		JLog(@"reportCache could not be loaded");
 		return NO;
 	}
 	
@@ -90,11 +92,18 @@
 	NSMutableDictionary *daysCache = [NSMutableDictionary dictionary];
 	NSMutableDictionary *weeksCache = [NSMutableDictionary dictionary];
 	NSArray *filenames = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:docPath error:NULL];
-	for (NSString *filename in filenames) {
-		if (![[filename pathExtension] isEqual:@"dat"]) continue;
-		NSString *fullPath = [docPath stringByAppendingPathComponent:filename];
-		Day *report = [NSKeyedUnarchiver unarchiveObjectWithFile:fullPath];
-		if (report != nil) {
+	for (NSString *filename in filenames) 
+	{
+		if( ![[filename pathExtension] isEqual:@"dat"] ) 
+		{
+			continue;
+		}
+		
+		NSString	*fullPath	= [docPath stringByAppendingPathComponent:filename];
+		Day			*report		= [NSKeyedUnarchiver unarchiveObjectWithFile:fullPath];
+		
+		if( report )
+		{
 			[report generateSummary];
 			if (report.date) {
 				if (report.isWeek) {
@@ -240,7 +249,7 @@ static NSString* parseViewState(NSString *htmlPage) {
                               nil];
     NSString *responseString = getPostRequestAsString(ITTS_SALES_PAGE_URL, postDict);
     *viewState = parseViewState(responseString);
-    
+	DJLog(@"original website:\n%@\n%@ %@",responseString, dayString, weekString);
     // iTC shows a (fixed?) number of date ranges in the form, even if all of them are not available 
     // if trying to download a report that doesn't exist, it'll return an error page instead of the report
     if ([responseString rangeOfString:@"theForm:errorPanel"].location != NSNotFound) {
@@ -272,8 +281,9 @@ static NSString* parseViewState(NSString *htmlPage) {
         [requestResponseData writeToFile:[originalReportsPath stringByAppendingPathComponent:originalFilename] atomically:YES];
         return[Day dayWithData:requestResponseData compressed:YES];
     } else {
-        responseString = [[[NSString alloc] initWithData:requestResponseData encoding:NSUTF8StringEncoding] autorelease];
-        NSLog(@"unexpected response: %@", responseString);
+        NSLog(@"unexpected response: headers:\n%@",[downloadResponse allHeaderFields]);
+		responseString = [[[NSString alloc] initWithData:requestResponseData encoding:NSUTF8StringEncoding] autorelease];
+        NSLog(@"unexpected response: content:\n%@", responseString);
         *error = YES;
         return nil;
     }   
@@ -382,12 +392,13 @@ static NSString* parseViewState(NSString *htmlPage) {
     }
 	
     
-    viewState = parseViewState(salesPage);    
+	viewState = parseViewState(salesPage);    
     NSString *dailyName = [salesPage stringByMatching:@"theForm:j_id_jsp_[0-9]*_6"];
-    NSString *weeklyName = [dailyName stringByReplacingOccurrencesOfString:@"_6" withString:@"_22"];
-    NSString *ajaxName = [dailyName stringByReplacingOccurrencesOfString:@"_6" withString:@"_2"];
-    NSString *daySelectName = [dailyName stringByReplacingOccurrencesOfString:@"_6" withString:@"_43"];
-    NSString *weekSelectName = [dailyName stringByReplacingOccurrencesOfString:@"_6" withString:@"_48"];
+	NSRange lastTwoChars = NSMakeRange([dailyName length] - 2, 2);
+    NSString *weeklyName = [dailyName stringByReplacingOccurrencesOfString:@"_6" withString:@"_22" options:0 range:lastTwoChars];
+    NSString *ajaxName = [dailyName stringByReplacingOccurrencesOfString:@"_6" withString:@"_2" options:0 range:lastTwoChars];
+    NSString *daySelectName = [dailyName stringByReplacingOccurrencesOfString:@"_6" withString:@"_43" options:0 range:lastTwoChars];
+    NSString *weekSelectName = [dailyName stringByReplacingOccurrencesOfString:@"_6" withString:@"_48" options:0 range:lastTwoChars];
     
     // parse days available
     NSMutableArray *availableDays = extractFormOptions(salesPage, @"theForm:datePickerSourceSelectElement");
@@ -535,10 +546,16 @@ static NSString* parseViewState(NSString *htmlPage) {
         [[NSNotificationCenter defaultCenter] postNotificationName:ReportManagerDownloadedWeeklyReportsNotification object:self];        
     } else {
         [days setObject:report forKey:report.date];
-        AppManager *manager = [AppManager sharedManager];
-        for (Country *c in [report.countries allValues]) {
-            for (Entry *e in c.entries) {
-				if (e.transactionType == 2 || e.transactionType == 9) {
+        AppManager	*manager	= [AppManager sharedManager];
+		NSSet		*ignoreSet	= [NSSet setWithObjects:	kS_AppleReport_ProductType_InAppSubscription,
+															kS_AppleReport_ProductType_InAppPurchase,
+															nil];
+		
+        for (Country *c in [report.countriesDictionary allValues]) {
+            for (Entry *e in c.entriesArray) 
+			{
+				if( [ignoreSet containsObject:e.transactionType] ) 
+				{
                     //skips IAPs in app manager, so IAPs don't duplicate reviews
                     [manager removeAppWithID:e.productIdentifier];
                     continue;
@@ -553,10 +570,14 @@ static NSString* parseViewState(NSString *htmlPage) {
 
 - (void)importReport:(Day *)report
 {
-	AppManager *manager = [AppManager sharedManager];
-	for (Country *c in [report.countries allValues]) {
-		for (Entry *e in c.entries) {
-            if (e.transactionType == 2 || e.transactionType == 9) {
+	AppManager	*manager	= [AppManager sharedManager];
+	NSSet		*ignoreSet	= [NSSet setWithObjects:	kS_AppleReport_ProductType_InAppSubscription,
+														kS_AppleReport_ProductType_InAppPurchase,
+														nil];
+
+	for (Country *c in [report.countriesDictionary allValues]) {
+		for (Entry *e in c.entriesArray) {
+			if( [ignoreSet containsObject:e.transactionType] ) {
                 //skips IAPs in app manager, so IAPs don't duplicate reviews
                 [manager removeAppWithID:e.productIdentifier];
                 continue;

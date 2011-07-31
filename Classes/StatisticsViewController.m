@@ -113,7 +113,7 @@
 
 - (void) viewWillAppear:(BOOL)animated {
 	[super viewWillAppear:animated];
-	[self reload];
+	[self reloadDays];
 	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(reloadDays)
 												 name:ReportManagerDownloadedDailyReportsNotification object:nil];
 }
@@ -183,8 +183,8 @@
 	// this is gross!  There should be a way to lookup an app name by it's id, and the converse
 	NSMutableDictionary *appNamesByAppId = [NSMutableDictionary dictionary];
 	for (Day *d in selectedDays) {
-		for (Country *c in d.countries.allValues) {
-			for (Entry *e in c.entries) { // O(N^3) for a simple lookup?  You know it baby!
+		for (Country *c in d.countriesDictionary.allValues) {
+			for (Entry *e in c.entriesArray) { // O(N^3) for a simple lookup?  You know it baby!
 				[appNamesByAppId setObject:e.productName forKey:e.productIdentifier];
 			}
 		}
@@ -199,9 +199,11 @@
 	float x = 640.0;
 	for (NSString *appID in allAppIDs) {
 		TrendGraphView *trendView = [[[TrendGraphView alloc] initWithFrame:CGRectMake(x, 0, 320, 200)] autorelease];
-		trendView.days = nil;
-		trendView.appName = [appNamesByAppId objectForKey:appID];
-		trendView.appID = appID;// [appIdByAppName objectForKey:appName];
+		
+		trendView.days		= nil;
+		trendView.appName	= [appNamesByAppId objectForKey:appID];
+		trendView.appID		= appID;// [appIdByAppName objectForKey:appName];
+		
 		[trendViewsForApps addObject:trendView];
 		[self.scrollView addSubview:trendView];
 		x += 320;
