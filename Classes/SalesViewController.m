@@ -8,7 +8,7 @@
 
 #import "SalesViewController.h"
 #import "ReportDownloadCoordinator.h"
-#import "Account.h"
+#import "ASAccount.h"
 #import "Report.h"
 #import "ReportCollection.h"
 #import "ReportSummary.h"
@@ -35,7 +35,7 @@
 @synthesize sortedDailyReports, sortedWeeklyReports, sortedCalendarMonthReports, sortedFiscalMonthReports, viewMode;
 @synthesize graphView, downloadReportsButtonItem;
 
-- (id)initWithAccount:(Account *)anAccount
+- (id)initWithAccount:(ASAccount *)anAccount
 {
 	self = [super initWithAccount:anAccount];
 	if (self) {
@@ -181,6 +181,7 @@
 	// Group daily reports by calendar month:
 	NSDateFormatter *monthFormatter = [[[NSDateFormatter alloc] init] autorelease];
 	[monthFormatter setDateFormat:@"MMMM yyyy"];
+	[monthFormatter setTimeZone:[NSTimeZone timeZoneForSecondsFromGMT:0]];
 	[sortedCalendarMonthReports removeAllObjects];
 	NSDateComponents *prevDateComponents = nil;
 	NSMutableArray *reportsInCurrentMonth = nil;
@@ -250,7 +251,24 @@
 
 - (void)downloadReports:(id)sender
 {
-	[[ReportDownloadCoordinator sharedReportDownloadCoordinator] downloadReportsForAccount:self.account];
+	if (self.account.password && self.account.password.length > 0) { //Only download reports for accounts with login
+		if (!account.vendorID || account.vendorID.length == 0) {
+			[[[[UIAlertView alloc] initWithTitle:NSLocalizedString(@"Vendor ID Missing", nil) 
+										 message:NSLocalizedString(@"You have not entered a vendor ID for this account. Please go to the account's settings and fill in the missing information.", nil) 
+										delegate:nil 
+							   cancelButtonTitle:NSLocalizedString(@"OK", nil) 
+							   otherButtonTitles:nil] autorelease] show];
+		} else {
+			[[ReportDownloadCoordinator sharedReportDownloadCoordinator] downloadReportsForAccount:self.account];
+		}
+	} else {
+		[[[[UIAlertView alloc] initWithTitle:NSLocalizedString(@"Login Missing", nil) 
+									 message:NSLocalizedString(@"You have not entered your iTunes Connect login for this account.", nil)
+									delegate:nil 
+						   cancelButtonTitle:NSLocalizedString(@"OK", nil) 
+						   otherButtonTitles:nil] autorelease] show];
+	}
+	
 }
 
 - (void)stopDownload:(id)sender
@@ -412,6 +430,7 @@
 		}
 	} else {
 		NSDateFormatter *monthFormatter = [[[NSDateFormatter alloc] init] autorelease];
+		[monthFormatter setTimeZone:[NSTimeZone timeZoneForSecondsFromGMT:0]];
 		[monthFormatter setDateFormat:@"MMM"];
 		if (showFiscalMonths) {
 			NSDate *date = [[self.sortedFiscalMonthReports objectAtIndex:index] startDate];
@@ -474,18 +493,20 @@
 - (NSString *)graphView:(GraphView *)graphView labelForSectionAtIndex:(NSUInteger)index
 {
 	if (selectedTab == 0) {
-		if ([((showWeeks) ? self.sortedWeeklyReports : self.sortedDailyReports) count] > 0) {
+		if ([((showWeeks) ? self.sortedWeeklyReports : self.sortedDailyReports) count] > index) {
 			Report *report = [((showWeeks) ? self.sortedWeeklyReports : self.sortedDailyReports) objectAtIndex:index];
 			NSDateFormatter *monthFormatter = [[[NSDateFormatter alloc] init] autorelease];
+			[monthFormatter setTimeZone:[NSTimeZone timeZoneForSecondsFromGMT:0]];
 			[monthFormatter setDateFormat:@"MMM '´'yy"];
 			return [monthFormatter stringFromDate:report.startDate];
 		} else {
 			return @"N/A";
 		}
 	} else {
-		if ([self.sortedCalendarMonthReports count] > 0) {
+		if ([self.sortedCalendarMonthReports count] > index) {
 			id<ReportSummary> report = [self.sortedCalendarMonthReports objectAtIndex:index];
 			NSDateFormatter *yearFormatter = [[[NSDateFormatter alloc] init] autorelease];
+			[yearFormatter setTimeZone:[NSTimeZone timeZoneForSecondsFromGMT:0]];
 			[yearFormatter setDateFormat:@"yyyy"];
 			NSString *yearString = [yearFormatter stringFromDate:report.startDate];
 			if (showFiscalMonths) {

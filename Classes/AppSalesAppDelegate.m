@@ -11,12 +11,13 @@
 #import "CurrencyManager.h"
 #import "ReportDownloadOperation.h"
 #import "ReportDownloadCoordinator.h"
+#import "PromoCodeOperation.h"
 #import "SSKeychain.h"
-#import "Account.h"
+#import "ASAccount.h"
 
 @implementation AppSalesAppDelegate
 
-@synthesize window;
+@synthesize window, accountsViewController;
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
 {
@@ -27,6 +28,7 @@
 	rootViewController.managedObjectContext = self.managedObjectContext;
 	UINavigationController *navigationController = [[[UINavigationController alloc] initWithRootViewController:rootViewController] autorelease];
 	navigationController.toolbarHidden = NO;
+	self.accountsViewController = rootViewController;
 	
 	self.window.rootViewController = navigationController;
 	[self.window makeKeyAndVisible];
@@ -38,8 +40,24 @@
 	
 	[[CurrencyManager sharedManager] refreshIfNeeded];
 	
+	NSString* productSortByValue = [[NSUserDefaults standardUserDefaults] objectForKey:@"ProductSortby"];
+	if (productSortByValue==nil) {
+		[[NSUserDefaults standardUserDefaults] setObject:@"productId" forKey:@"ProductSortby"];
+	}	
+  
 	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(reportDownloadFailed:) name:ASReportDownloadFailedNotification object:nil];
-		
+	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(promoCodeDownloadFailed:) name:ASPromoCodeDownloadFailedNotification object:nil];
+	
+	if ([launchOptions objectForKey:UIApplicationLaunchOptionsURLKey]) {
+		[self.accountsViewController performSelector:@selector(downloadReports:) withObject:nil afterDelay:0.0];
+	}
+	
+	return YES;
+}
+
+- (BOOL)application:(UIApplication *)application handleOpenURL:(NSURL *)url
+{
+	[self.accountsViewController performSelector:@selector(downloadReports:) withObject:nil afterDelay:0.0];
 	return YES;
 }
 
@@ -67,7 +85,7 @@
 	if (oldUsername) {
 		oldPassword = [SSKeychain passwordForService:@"omz:software AppSales Mobile Service" account:oldUsername];
 	}
-	Account *account = nil;
+	ASAccount *account = nil;
 	if (oldUsername) {
 		NSFetchRequest *accountFetchRequest = [[[NSFetchRequest alloc] init] autorelease];
 		[accountFetchRequest setEntity:[NSEntityDescription entityForName:@"Account" inManagedObjectContext:[self managedObjectContext]]];
@@ -79,7 +97,7 @@
 		}
 	}
 	if (!account) {
-		account = (Account *)[NSEntityDescription insertNewObjectForEntityForName:@"Account" inManagedObjectContext:[self managedObjectContext]];
+		account = (ASAccount *)[NSEntityDescription insertNewObjectForEntityForName:@"Account" inManagedObjectContext:[self managedObjectContext]];
 		if (oldUsername) account.username = oldUsername;
 		if (oldPassword) account.password = oldPassword;
 	}
@@ -203,6 +221,17 @@
 {
 	NSString *errorMessage = [[notification userInfo] objectForKey:kASReportDownloadErrorDescription];
 	NSString *alertMessage = [NSString stringWithFormat:NSLocalizedString(@"Downloading reports from iTunes Connect failed. Please try again later or check the iTunes Connect website for anything unusual. %@", nil), (errorMessage) ? errorMessage : @""];
+	[[[[UIAlertView alloc] initWithTitle:NSLocalizedString(@"Error", nil) 
+								 message:alertMessage 
+								delegate:nil 
+					   cancelButtonTitle:NSLocalizedString(@"OK", nil) 
+					   otherButtonTitles:nil] autorelease] show];
+}
+
+- (void)promoCodeDownloadFailed:(NSNotification *)notification
+{
+	NSString *errorDescription = [[notification userInfo] objectForKey:kASPromoCodeDownloadFailedErrorDescription];
+	NSString *alertMessage = [NSString stringWithFormat:@"An error occured while downloading the promo codes (%@).", errorDescription];
 	[[[[UIAlertView alloc] initWithTitle:NSLocalizedString(@"Error", nil) 
 								 message:alertMessage 
 								delegate:nil 

@@ -10,7 +10,7 @@
 #import <CoreData/CoreData.h>
 
 
-@interface Account : NSManagedObject {
+@interface ASAccount : NSManagedObject {
 
 	BOOL isDownloadingReports;
 	NSString *downloadStatus;
@@ -25,6 +25,7 @@
 
 // Core Data properties:
 @property (nonatomic, retain) NSString *username;
+@property (nonatomic, retain) NSString *vendorID;
 @property (nonatomic, retain) NSString *title;
 @property (nonatomic, retain) NSNumber *sortIndex;
 @property (nonatomic, retain) NSSet *dailyReports;

@@ -9,26 +9,31 @@
 #import <UIKit/UIKit.h>
 #import "FieldEditorViewController.h"
 
-@class Account;
+#define kAccountUsername					@"username"
+#define kAccountPassword					@"password"
+#define kAccountVendorID					@"vendorID"
+
+@class ASAccount;
 
 @interface AccountsViewController : UITableViewController <NSFetchedResultsControllerDelegate, UIAlertViewDelegate, FieldEditorViewControllerDelegate>
 {
 	NSArray *accounts;
 	NSManagedObjectContext *managedObjectContext;
-	Account *selectedAccount;
+	ASAccount *selectedAccount;
 	UIBarButtonItem *refreshButtonItem;
 }
 
 @property (nonatomic, retain) UIBarButtonItem *refreshButtonItem;
 @property (nonatomic, retain) NSArray *accounts;
-@property (nonatomic, retain) Account *selectedAccount;
+@property (nonatomic, retain) ASAccount *selectedAccount;
 @property (nonatomic, retain) NSManagedObjectContext *managedObjectContext;
 
 - (void)reloadAccounts;
-- (NSString *)folderNameForExportingReportsOfAccount:(Account *)account;
+- (void)downloadReports:(id)sender;
+- (NSString *)folderNameForExportingReportsOfAccount:(ASAccount *)account;
 - (void)showSettings;
 - (void)addNewAccount;
-- (void)editAccount:(Account *)account;
+- (void)editAccount:(ASAccount *)account;
 - (void)saveContext;
 
 @end
