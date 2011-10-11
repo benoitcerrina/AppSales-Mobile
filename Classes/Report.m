@@ -362,6 +362,10 @@
 	for (Transaction *transaction in self.transactions) {
 		NSString *type = transaction.type;
 		NSString *promoType = transaction.promoType;
+		if(promoType != nil) {
+			promoType = [promoType stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+			if([promoType isEqualToString:@""])promoType = nil;
+		}
 		NSString *combinedType = (promoType != nil) ? [NSString stringWithFormat:@"%@.%@", type, promoType] : type;
 		if (![paidTransactionTypes containsObject:combinedType]) {
 			continue;
@@ -609,6 +613,7 @@
 - (NSString *)title
 {
 	NSDateFormatter *dateFormatter = [[[NSDateFormatter alloc] init] autorelease];
+	[dateFormatter setTimeZone:[NSTimeZone timeZoneForSecondsFromGMT:0]];
 	[dateFormatter setDateStyle:NSDateFormatterShortStyle];
 	return [dateFormatter stringFromDate:self.startDate];
 }

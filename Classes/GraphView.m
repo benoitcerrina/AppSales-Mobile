@@ -170,11 +170,10 @@
 - (void)barSelected:(StackedBarView *)barView
 {
 	if ([[UIMenuController sharedMenuController] isMenuVisible]) return;
-	
 	for (NSNumber *barIndex in visibleBarViews) {
 		StackedBarView *view = [visibleBarViews objectForKey:barIndex];
 		if (view == barView) {
-			[self.delegate graphView:self didSelectBarAtIndex:[barIndex unsignedIntegerValue]];
+			[self.delegate graphView:self didSelectBarAtIndex:[barIndex unsignedIntegerValue] withFrame:[self convertRect:view.frame fromView:view.superview]];
 			break;
 		}
 	}
@@ -262,7 +261,7 @@
 	NSUInteger numberOfBars = [self.dataSource numberOfBarsInGraphView:self];
 	barsPerPage = scrollView.bounds.size.width / barWidth;
 	int firstVisibleBarIndex = MIN(numberOfBars, MAX(0, scrollView.contentOffset.x / barWidth));
-	NSRange newVisibleRange = NSMakeRange(firstVisibleBarIndex, barsPerPage + 1);
+	NSRange newVisibleRange = NSMakeRange(firstVisibleBarIndex, barsPerPage + 2);
 	if (newVisibleRange.location + newVisibleRange.length >= numberOfBars) {
 		newVisibleRange.length = numberOfBars - newVisibleRange.location;
 	}
