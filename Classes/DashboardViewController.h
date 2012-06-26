@@ -13,7 +13,7 @@
 
 @interface DashboardViewController : UIViewController <UITableViewDataSource, UITableViewDelegate, ColorPickerViewControllerDelegate> {
 
-	Product *selectedProduct;
+	NSMutableArray *selectedProducts;
 	ASAccount *account;
 	UITableView *productsTableView;
 	UIView *topView;
@@ -30,12 +30,14 @@
 	UIActivityIndicatorView *activityIndicator;
 	UILabel *statusLabel;
 	UIProgressView *progressBar;
+	
+	UIActionSheet *activeSheet;
 }
 
 @property (nonatomic, retain) ASAccount *account;
 @property (nonatomic, retain) NSArray *products;
 @property (nonatomic, retain) NSArray *visibleProducts;
-@property (nonatomic, retain) Product *selectedProduct;
+@property (nonatomic, retain) NSMutableArray *selectedProducts;
 @property (nonatomic, retain) UITableView *productsTableView;
 @property (nonatomic, retain) UIView *topView;
 @property (nonatomic, retain) UIImageView *shadowView;
@@ -45,8 +47,10 @@
 @property (nonatomic, retain) UIActivityIndicatorView *activityIndicator;
 @property (nonatomic, retain) UILabel *statusLabel;
 @property (nonatomic, retain) UIProgressView *progressBar;
+@property (nonatomic, retain) UIActionSheet *activeSheet;
 
 - (id)initWithAccount:(ASAccount *)anAccount;
+- (void)willShowPasscodeLock:(NSNotification *)notification;
 - (NSSet *)entityNamesTriggeringReload;
 - (void)reloadData;
 - (void)reloadTableView;
@@ -54,5 +58,7 @@
 - (BOOL)shouldShowStatusBar;
 - (void)stopDownload:(id)sender;
 - (UIView *)accessoryViewForRowAtIndexPath:(NSIndexPath *)indexPath;
+
+- (void)handleLongPress:(UILongPressGestureRecognizer *)gestureRecognizer;
 
 @end
